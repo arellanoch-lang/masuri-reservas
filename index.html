@@ -207,13 +207,15 @@ input[type="checkbox"]{accent-color:var(--berry);width:16px;height:16px}
 .fhearts button:hover{transform:scale(1.2)}
 .fhearts button.on{color:var(--berry)}
 .err{color:var(--berry);font-size:13px;font-weight:700;min-height:1em}
-.sheet .foot{display:flex;gap:8px;justify-content:flex-end}
+.sheet .foot{display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:-22px;background:var(--surface);padding-block:10px 4px;margin-bottom:-4px}
+.hint{font-size:12px;color:var(--muted);font-weight:700;min-height:1em}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:999px;font-size:13px;font-weight:700;z-index:20}
 @media (prefers-reduced-motion:no-preference){.bar i{transition:width .6s ease}}
 @media (max-width:420px){.item{grid-template-columns:auto 1fr}.side{grid-column:1/-1;flex-direction:row;align-items:center;justify-content:space-between}.thumb{width:68px;height:68px}}
 .thumb{width:84px;height:84px;border-radius:16px;overflow:hidden;background:var(--track);border:2px solid var(--line);padding:0;display:grid;place-items:center;color:var(--muted);flex:none}
 .thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .thumb svg{width:34px;height:34px;opacity:.6}
+.thumb.broken::after{content:"♡";font-size:28px;color:var(--berry)}
 button.thumb{cursor:zoom-in}
 .photo-pick{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .photo-prev{width:96px;height:96px;border-radius:18px;border:2px dashed var(--line);background:var(--bg);overflow:hidden;display:grid;place-items:center;color:var(--muted);font-size:12px;font-weight:700;text-align:center;padding:0}
@@ -290,6 +292,13 @@ let ui={tab:"deseos",cat:"todos",tipo:"todos",sort:"deseo-desc",showDone:false,c
 try{const s=JSON.parse(localStorage.getItem("wish_ui")||"{}");Object.assign(ui,s,{confirm:null})}catch(e){}
 const saveUi=()=>{try{localStorage.setItem("wish_ui",JSON.stringify({tab:ui.tab,cat:ui.cat,tipo:ui.tipo,sort:ui.sort,showDone:ui.showDone}))}catch(e){}};
 
+const leerPrecio=v=>{v=String(v||"").replace(/[€\s]/g,"");if(/,\d{1,2}$/.test(v))v=v.replace(/\./g,"").replace(",",".");else v=v.replace(/,/g,"");return parseFloat(v)};
+const normUrl=v=>{v=String(v||"").trim();if(!v)return"";const m=v.match(/https?:\/\/\S+/i);if(m)return m[0];if(/^[\w-]+(\.[\w-]+)+(\/|$)/.test(v))return"https://"+v;return v};
+async function datosDelEnlace(u){
+  const r=await fetch("https://api.microlink.io/?url="+encodeURIComponent(u));
+  const j=await r.json(); if(j.status!=="success"||!j.data)throw new Error("sin datos");
+  const d=j.data; return {img:(d.image&&d.image.url)||(d.logo&&d.logo.url)||"",title:d.title||"",tienda:d.publisher||""};
+}
 /* ---------- fotos (IndexedDB) ---------- */
 const fotos=new Map();
 let idbP=null;
@@ -385,8 +394,8 @@ function itemHtml(i){
     if(ui.confirm.kind==="del")conf=`<div class="confirm"><span>¿Borrar «${esc(i.nombre)}»?</span><button class="mini danger" data-action="del-ok" data-id="${i.id}">Borrar</button><button class="mini" data-action="cancel">Cancelar</button></div>`;
     if(ui.confirm.kind==="buy")conf=`<div class="confirm"><span>¡Comprado! ¿Restamos ${money(i.precio)} del ahorro?</span><button class="mini" data-action="buy-ok" data-id="${i.id}" data-rest="1">Sí, restar</button><button class="mini" data-action="buy-ok" data-id="${i.id}">Solo marcar</button><button class="mini" data-action="cancel">Cancelar</button></div>`;
   }
-  const f=fotos.get(i.id);
-  const thumb=f?`<button class="thumb" data-action="zoom" data-id="${i.id}" aria-label="Ver imagen de ${esc(i.nombre)}"><img src="${f}" alt=""></button>`:`<div class="thumb" aria-hidden="true">${ICO[i.tipo]||ICO.otros}</div>`;
+  const f=fotos.get(i.id)||(/^https:\/\//.test(i.fotoUrl||"")?i.fotoUrl:"");
+  const thumb=f?`<button class="thumb" data-action="zoom" data-id="${i.id}" aria-label="Ver imagen de ${esc(i.nombre)}"><img src="${esc(f)}" alt="" referrerpolicy="no-referrer" onerror="this.parentNode.classList.add('broken');this.remove()"></button>`:`<div class="thumb" aria-hidden="true">${ICO[i.tipo]||ICO.otros}</div>`;
   return `<div class="item${i.comprado?" done":""}">
     ${thumb}
     <div class="main">
@@ -417,7 +426,7 @@ function renderAhorro(c){
   <div class="bank">
     <div><div class="lbl">Dinero ahorrado</div><div class="big">${money(c.a)}</div></div>
     <form class="move" id="m-form">
-      <input id="m-cant" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Cantidad €" aria-label="Cantidad en euros">
+      <input id="m-cant" type="text" inputmode="decimal" autocomplete="off" placeholder="Cantidad €" aria-label="Cantidad en euros">
       <input id="m-nota" type="text" placeholder="Nota (opcional)" aria-label="Nota">
       <button class="btn" type="submit" data-sign="1">+ Añadir</button>
       <button class="btn ghost" type="button" data-action="retirar">− Retirar</button>
@@ -456,10 +465,10 @@ function openForm(it){
         <input type="file" id="f-foto" accept="image/*" hidden></div></div>
     <div class="field"><label for="f-nombre">Nombre</label><input id="f-nombre" value="${esc(e.nombre||"")}" placeholder="Ej.: Abrigo de lana camel" autocomplete="off"></div>
     <div class="two">
-      <div class="field"><label for="f-precio">Precio (€)</label><input id="f-precio" type="number" inputmode="decimal" step="0.01" min="0" value="${e.precio??""}"></div>
+      <div class="field"><label for="f-precio">Precio (€)</label><input id="f-precio" type="text" inputmode="decimal" autocomplete="off" placeholder="0,00" value="${e.precio!=null?String(e.precio).replace(".",","):""}"></div>
       <div class="field"><label for="f-tienda">Tienda</label><input id="f-tienda" value="${esc(e.tienda||"")}" placeholder="Ej.: Zara, Sephora…" autocomplete="off"></div>
     </div>
-    <div class="field"><label for="f-enlace">Enlace</label><input id="f-enlace" type="url" value="${esc(e.enlace||"")}" placeholder="https://…"></div>
+    <div class="field"><label for="f-enlace">Enlace</label><input id="f-enlace" type="url" inputmode="url" autocomplete="off" value="${esc(e.enlace||"")}" placeholder="Pega aquí el enlace del producto"><span class="hint" id="f-hint"></span></div>
     <div class="two">
       <div class="field"><label for="f-color">Color</label><input id="f-color" value="${esc(e.color||"")}" placeholder="Ej.: Camel" autocomplete="off"></div>
       <div class="field"><label for="f-talla">Talla</label><input id="f-talla" value="${esc(e.talla||"")}" placeholder="Ej.: M, 38, 50 ml" autocomplete="off"></div>
@@ -476,28 +485,46 @@ function openForm(it){
   const drawH=()=>$("fh").innerHTML=[1,2,3,4,5].map(n=>`<button type="button" data-n="${n}" class="${n<=deseo?"on":""}" aria-label="${n} de 5">♥</button>`).join("");
   drawH();
   $("fh").onclick=ev=>{const b=ev.target.closest("button");if(b){deseo=+b.dataset.n;drawH()}};
-  let foto=it?fotos.get(it.id)||null:null, fotoCambiada=false;
-  const drawP=()=>{$("f-prev").innerHTML=foto?`<img src="${foto}" alt="">`:"Toca para<br>añadir foto";$("f-unpick").hidden=!foto};
+  let foto=it?fotos.get(it.id)||null:null, fotoCambiada=false, fotoUrl=it?.fotoUrl||"", ultimoEnlace=it?.enlace||"";
+  const drawP=()=>{const src=foto||fotoUrl;$("f-prev").innerHTML=src?`<img src="${esc(src)}" alt="" referrerpolicy="no-referrer">`:"Toca para<br>añadir foto";$("f-unpick").hidden=!src};
+  const buscarImagen=async()=>{
+    const u=normUrl($("f-enlace").value); if(!/^https?:\/\//.test(u)||u===ultimoEnlace)return; ultimoEnlace=u; $("f-enlace").value=u;
+    if(foto)return;
+    $("f-hint").textContent="Buscando la imagen del producto…";
+    try{const d=await datosDelEnlace(u);
+      if(normUrl($("f-enlace").value)!==u)return;
+      if(d.img){fotoUrl=d.img;drawP();$("f-hint").textContent="Imagen encontrada ✓"}
+      else $("f-hint").textContent="Esta tienda no muestra imagen. Puedes subir una foto.";
+      if(!$("f-nombre").value.trim()&&d.title)$("f-nombre").value=d.title.split(/\s[|–-]\s/)[0].trim().slice(0,80);
+      if(!$("f-tienda").value.trim()&&d.tienda)$("f-tienda").value=d.tienda.slice(0,40);
+    }catch(x){$("f-hint").textContent="No he podido sacar la imagen de ese enlace. Puedes subir una foto."}
+  };
+  let tEnl=null;
+  $("f-enlace").addEventListener("input",()=>{clearTimeout(tEnl);tEnl=setTimeout(buscarImagen,700)});
+  $("f-enlace").addEventListener("change",buscarImagen);
   drawP();
   $("f-prev").onclick=$("f-pick").onclick=()=>$("f-foto").click();
-  $("f-unpick").onclick=()=>{foto=null;fotoCambiada=true;drawP()};
+  $("f-unpick").onclick=()=>{foto=null;fotoUrl="";fotoCambiada=true;drawP()};
   $("f-foto").onchange=async e=>{const fl=e.target.files[0];e.target.value="";if(!fl)return;
     $("f-prev").innerHTML="Cargando…";try{foto=await comprimir(fl);fotoCambiada=true}catch(x){toast("No se ha podido abrir esa imagen")}drawP()};
   const close=()=>$("modal").innerHTML="";
   $("f-cancel").onclick=close;
   $("ov").onclick=ev=>{if(ev.target.id==="ov")close()};
   setTimeout(()=>$("f-nombre").focus(),30);
+  const fallo=(msg,campo)=>{$("f-err").textContent=msg;toast(msg);if(campo){$(campo).focus();$(campo).scrollIntoView({block:"center"})}};
   $("item-form").onsubmit=ev=>{
     ev.preventDefault();
-    const nombre=$("f-nombre").value.trim(), precio=parseFloat($("f-precio").value);
-    if(!nombre){$("f-err").textContent="Escribe el nombre del producto.";return}
-    if(!(precio>=0)){$("f-err").textContent="Pon un precio (puede ser aproximado).";return}
+    try{
+    const nombre=$("f-nombre").value.trim(), precio=leerPrecio($("f-precio").value);
+    if(!nombre)return fallo("Escribe el nombre del producto.","f-nombre");
+    if(!(precio>=0))return fallo("Pon un precio, por ejemplo 29,99.","f-precio");
     const nid=it?it.id:newId();
     if(fotoCambiada){if(foto)fotos.set(nid,foto);else fotos.delete(nid);(foto?guardarFoto(nid,foto):borrarFoto(nid))}
     saveItem({id:nid,nombre,precio:Math.round(precio*100)/100,tipo:$("f-tiposel").value,
       categoria:(document.querySelector('input[name="cat"]:checked')||{}).value||"quiero",deseo,
-      enlace:$("f-enlace").value.trim(),tienda:$("f-tienda").value.trim(),color:$("f-color").value.trim(),talla:$("f-talla").value.trim(),nota:$("f-nota").value.trim(),comprado:it?!!it.comprado:false,creado:it?.creado||Date.now()});
+      enlace:normUrl($("f-enlace").value),fotoUrl:foto?"":fotoUrl,tienda:$("f-tienda").value.trim(),color:$("f-color").value.trim(),talla:$("f-talla").value.trim(),nota:$("f-nota").value.trim(),comprado:it?!!it.comprado:false,creado:it?.creado||Date.now()});
     close(); toast(it?"Cambios guardados":"Añadido a tu wishlist");
+    }catch(x){fallo("No se ha podido guardar: "+(x&&x.message||x))}
   };
 }
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&$("modal").innerHTML)$("modal").innerHTML=""});
@@ -511,7 +538,7 @@ document.addEventListener("click",ev=>{
   const a=t.dataset.action,id=t.dataset.id,it=items.find(x=>x.id===id);
   if(a==="new")openForm();
   if(a==="edit"&&it)openForm(it);
-  if(a==="zoom"&&it){const z=document.createElement("div");z.className="zoom";z.innerHTML=`<div><img src="${fotos.get(id)}" alt=""><p>${esc(it.nombre)}</p></div>`;z.onclick=()=>z.remove();document.body.appendChild(z)}
+  if(a==="zoom"&&it){const z=document.createElement("div");z.className="zoom";z.innerHTML=`<div><img src="${esc(fotos.get(id)||it.fotoUrl||"")}" alt="" referrerpolicy="no-referrer"><p>${esc(it.nombre)}</p></div>`;z.onclick=()=>z.remove();document.body.appendChild(z)}
   if(a==="deseo"&&it)patchItem(id,{deseo:+t.dataset.n});
   if(a==="del"){ui.confirm={id,kind:"del"};render()}
   if(a==="buy"){ui.confirm={id,kind:"buy"};render()}
@@ -529,7 +556,7 @@ $("sort").onchange=e=>{ui.sort=e.target.value;saveUi();render()};
 $("show-done").onchange=e=>{ui.showDone=e.target.checked;saveUi();render()};
 document.addEventListener("submit",ev=>{if(ev.target.id==="m-form"){ev.preventDefault();moveMoney(1)}});
 function moveMoney(sign){
-  const v=parseFloat($("m-cant").value);
+  const v=leerPrecio($("m-cant").value);
   if(!(v>0)){toast("Escribe una cantidad mayor que 0");$("m-cant").focus();return}
   addMovimiento(sign*Math.round(v*100)/100,$("m-nota").value.trim());
   toast(sign>0?"Ahorro añadido":"Retirada apuntada");
